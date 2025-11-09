@@ -1,0 +1,30 @@
+Accuracy: 88.3074%
+
+              precision    recall  f1-score   support
+
+    Assamese       0.87      0.97      0.92      2036
+      Bangla       0.98      0.94      0.96     10212
+        Bodo       0.91      0.99      0.95      1935
+       Dogri       0.87      0.98      0.92      1500
+    Gujarati       0.97      0.91      0.94     10590
+       Hindi       0.91      0.66      0.77     10244
+     Kannada       0.96      0.98      0.97     10710
+    Kashmiri       0.54      0.73      0.62      3979
+     Konkani       0.44      0.98      0.61      1944
+    Maithili       0.45      0.86      0.59      2953
+   Malayalam       0.97      0.97      0.97     10266
+    Manipuri       0.83      1.00      0.91      2956
+     Marathi       0.92      0.85      0.89     10246
+      Nepali       0.86      0.99      0.92      2937
+       Oriya       0.74      0.99      0.85      2036
+     Punjabi       0.89      0.87      0.88     10576
+    Sanskrit       0.73      0.99      0.84      2975
+     Santali       0.96      1.00      0.98      2512
+      Sindhi       0.94      0.82      0.88     10790
+       Tamil       0.98      0.97      0.97     10616
+      Telugu       0.97      0.93      0.95     10520
+        Urdu       0.96      0.68      0.80     11302
+
+    accuracy                           0.88    143835
+   macro avg       0.85      0.91      0.87    143835
+weighted avg       0.91      0.88      0.89    143835

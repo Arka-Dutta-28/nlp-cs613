@@ -6,7 +6,7 @@ import torch.nn as nn
 from tqdm.auto import tqdm
 from sklearn.metrics import classification_report, accuracy_score
 import pandas as pd
-from tokenizer import SimpleTokenizer
+from tokenizer import IndicSentencePieceTokenizer
 from model import TransformerEncoder, TripletLoss
 from dataset import (
     get_indic_processor,
@@ -33,8 +33,9 @@ def build_or_load_vocab(tokenizer, processor, files, sample_limit=None, vocab_pa
     def iter_texts():
         for f in files:
             df = safe_read_csv(f, sample_limit=sample_limit)
+
             for col in df.columns:
-                df[col] = df[col].astype(str).apply(lambda x: x[:5000])
+                df[col] = df[col].astype(str).apply(lambda x: x)
                 for v in df[col].astype(str).values:
                     yield processor.process(v)
     if tokenizer.vocab_path and os.path.exists(tokenizer.vocab_path):
@@ -68,10 +69,10 @@ def train_phase1(model, optimizer, tokenizer, loader_nre, epochs=5, save_dir='ch
             optimizer.step()
 
             total_loss += loss.item()
-            pbar.set_postfix({'loss': f'{loss.item():.8f}'})
+            pbar.set_postfix({'loss': f'{loss.item():.10f}'})
 
         avg = total_loss / max(1, len(loader_nre))
-        print(f'Phase1 Epoch {epoch} avg_loss={avg:.8f}')
+        print(f'Phase1 Epoch {epoch} avg_loss={avg:.10f}')
         save_checkpoint(model, optimizer, epoch, os.path.join(save_dir, f'phase1_epoch{epoch}.pt'))
 
 
@@ -104,10 +105,10 @@ def train_phase2(model, optimizer, tokenizer, phase2_loader, epochs=5, start_epo
             correct += (preds == labels).sum().item()
             total += labels.size(0)
             total_loss += loss.item()
-            pbar.set_postfix({'loss': f'{loss.item():.4f}', 'acc': f'{correct / total:.3f}'})
+            pbar.set_postfix({'loss': f'{loss.item():.4f}', 'acc': f'{(correct / total) * 100:.3f}'})
 
         avg = total_loss / max(1, len(phase2_loader))
-        print(f'Phase2 Epoch {epoch} avg_loss={avg:.4f} acc={correct / total:.4f}')
+        print(f'Phase2 Epoch {epoch} avg_loss={avg:.4f} acc={(correct / total) * 100:.4f}')
         save_checkpoint(model, optimizer, epoch, os.path.join(save_dir, f'phase2_epoch{epoch}.pt'))
 
 
@@ -137,7 +138,7 @@ def evaluate_on_bhasha(model, tokenizer, processor, bhasha_csv='bhasha-abhijnaan
             y_true.append(gold)
             y_pred.append(pred)
 
-    acc = accuracy_score(y_true, y_pred)
+    acc = accuracy_score(y_true, y_pred) * 100
     report = classification_report(y_true, y_pred, target_names=[id2label[i] for i in sorted(id2label)])
     print(f'Bhasha Eval Acc: {acc:.8f}')
     print(report)
@@ -146,13 +147,15 @@ def evaluate_on_bhasha(model, tokenizer, processor, bhasha_csv='bhasha-abhijnaan
 
 def main():
     processor = get_indic_processor()
-    tokenizer = SimpleTokenizer(vocab_path='vocab.json', min_freq=2)
 
-    # Build vocab
-    build_or_load_vocab(tokenizer, processor, ['triplet_nre.csv', 'phase2.csv'], sample_limit=10000, vocab_path='vocab.json')
+    tokenizer = IndicSentencePieceTokenizer(vocab_size=64000)
+    if not os.path.exists("indic_tokenizer.model"):
+        tokenizer.train(["bhasha-abhijnaanam.csv", "phase1.csv", "phase2.csv"], sample_limit=200000)
+    else:
+        tokenizer.load("indic_tokenizer.model")
 
     # Phase 1: only NRE
-    loader_nre = build_triplet_dataloaders('triplet_nre.csv', processor, tokenizer, batch_size=256)
+    loader_nre = build_triplet_dataloaders('phase1.csv', processor, tokenizer, batch_size=128)
 
     model = TransformerEncoder(
         vocab_size=len(tokenizer),
@@ -171,7 +174,7 @@ def main():
     model.phase = 'phase2'
     model.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(256, 22)).to(DEVICE)
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-5)
-    phase2_loader = build_phase2_dataloader('phase2.csv', processor, tokenizer, batch_size=256)
+    phase2_loader = build_phase2_dataloader('phase2.csv', processor, tokenizer, batch_size=128)
     train_phase2(model, optimizer, tokenizer, phase2_loader, epochs=2)
     save_checkpoint(model, optimizer, 5, 'checkpoints/phase2_final.pt')
 

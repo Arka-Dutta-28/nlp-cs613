@@ -1,96 +1,62 @@
 # tokenizer.py
-import os
-import json
-from collections import Counter
+import sentencepiece as spm
+import os, glob, pandas as pd, tempfile
 import torch
+from tqdm.auto import tqdm
 
 
-class SimpleTokenizer:
-    """
-    A lightweight whitespace-based tokenizer that builds its own vocabulary.
+class IndicSentencePieceTokenizer:
+    def __init__(self, vocab_size=64000, model_prefix="indic_tokenizer", model_type="unigram"):
+        self.vocab_size = vocab_size
+        self.model_prefix = model_prefix
+        self.model_type = model_type
+        self.sp = None
 
-    Special tokens:
-      [PAD] -> id 0
-      [UNK] -> id 1
-    """
+    def train(self, files, sample_limit=None):
+        print("Training SentencePiece tokenizer...")
+        temp_txt = tempfile.NamedTemporaryFile(delete=False, suffix=".txt").name
+        with open(temp_txt, "w", encoding="utf-8") as out:
+            for f in files:
+                if not os.path.exists(f):
+                    continue
+                print(f"Reading {f} ...")
+                df = pd.read_csv(f, encoding="utf-8", on_bad_lines="skip", engine="python")
+                for col in df.columns:
+                    texts = df[col].astype(str).values[:sample_limit]
+                    for text in tqdm(texts, desc=f"Writing from {os.path.basename(f)}", leave=False):
+                        out.write(text.strip() + "\n")
 
-    def __init__(self, vocab_path=None, min_freq=2):
-        self.vocab_path = vocab_path
-        self.min_freq = min_freq
-        self.token2id = {"[PAD]": 0, "[UNK]": 1}
-        self.id2token = {0: "[PAD]", 1: "[UNK]"}
+        print("Text collection complete. Starting SentencePiece training ...")
 
-        # Load vocab if provided
-        if vocab_path and os.path.exists(vocab_path):
-            self.load(vocab_path)
+        spm.SentencePieceTrainer.Train(
+            input=temp_txt,
+            model_prefix=self.model_prefix,
+            vocab_size=self.vocab_size,
+            model_type=self.model_type,
+            character_coverage=1.0,
+            pad_id=0,
+            unk_id=1,
+            bos_id=2,
+            eos_id=3,
+            user_defined_symbols=["[CLS]", "[SEP]", "[MASK]"]
+        )
+        print(f"SentencePiece tokenizer trained -> {self.model_prefix}.model")
 
-    def build_vocab(self, texts_iterator, vocab_path='vocab.json'):
-        """
-        Build a vocabulary from an iterable of preprocessed (space-tokenized) texts.
-        Only tokens appearing at least min_freq times are included.
-        """
-        counter = Counter()
-        for text in texts_iterator:
-            for tok in text.split():
-                counter[tok] += 1
+        os.remove(temp_txt)
+        self.sp = spm.SentencePieceProcessor(model_file=f"{self.model_prefix}.model")
 
-        for tok, freq in counter.most_common():
-            if freq < self.min_freq:
-                break
-            if tok not in self.token2id:
-                self.token2id[tok] = len(self.token2id)
-
-        self.id2token = {v: k for k, v in self.token2id.items()}
-        self.vocab_path = vocab_path
-        with open(vocab_path, 'w', encoding='utf-8') as f:
-            json.dump(self.token2id, f, ensure_ascii=False, indent=2)
-
-        print(f"Vocab built ({len(self.token2id)} tokens) -> {vocab_path}")
-
-    def __len__(self):
-        return len(self.token2id)
-
-    def tokenize(self, text: str):
-        """Split text by whitespace."""
-        return text.strip().split()
-
-    def encode(self, text: str, max_length=256):
-        """Convert a single text string into a list of token IDs."""
-        toks = self.tokenize(text)
-        ids = [self.token2id.get(t, 1) for t in toks]  # 1 = [UNK]
-
-        # Pad or truncate
-        if len(ids) < max_length:
-            ids = ids + [0] * (max_length - len(ids))  # pad with 0 = [PAD]
-        else:
-            ids = ids[:max_length]
-
-        return ids
+    def load(self, model_file="indic_tokenizer.model"):
+        self.sp = spm.SentencePieceProcessor(model_file=model_file)
+        print(f"Loaded SentencePiece tokenizer from {model_file}")
 
     def batch_encode(self, texts, max_length=256):
-        """Batch encode a list of texts into tensors."""
-        input_ids = [self.encode(t, max_length=max_length) for t in texts]
-        attn_mask = [[1 if tok_id != 0 else 0 for tok_id in seq] for seq in input_ids]
-
+        ids = [self.sp.encode(t, out_type=int)[:max_length] for t in texts]
+        attn_mask = [[1]*len(seq) + [0]*(max_length-len(seq)) if len(seq) < max_length else [1]*max_length for seq in ids]
+        ids = [seq + [0]*(max_length-len(seq)) if len(seq) < max_length else seq[:max_length] for seq in ids]
         return {
-            'input_ids': torch.tensor(input_ids, dtype=torch.long),
-            'attention_mask': torch.tensor(attn_mask, dtype=torch.long)
+            "input_ids": torch.tensor(ids, dtype=torch.long),
+            "attention_mask": torch.tensor(attn_mask, dtype=torch.long)
         }
 
-    def save(self, path=None):
-        """Save vocabulary to a file."""
-        path = path or self.vocab_path
-        if not path:
-            raise ValueError("No vocab path provided to save()")
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(self.token2id, f, ensure_ascii=False, indent=2)
-        print(f"Saved vocab -> {path}")
-
-    def load(self, path):
-        """Load vocabulary from a file."""
-        with open(path, 'r', encoding='utf-8') as f:
-            self.token2id = json.load(f)
-        # keys might be str in JSON, so ensure ints
-        self.id2token = {int(v): k for k, v in self.token2id.items()}
-        self.vocab_path = path
-        print(f"Loaded vocab ({len(self.token2id)} tokens) from {path}")
+    def __len__(self):
+        return len(self.sp)

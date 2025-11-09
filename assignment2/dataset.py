@@ -73,6 +73,7 @@ class IndicTextProcessor:
             return text
         code = lang_code_map.get(label, 'hi')
         try:
+            self._cache = {}
             if code not in self._cache:
                 self._cache[code] = self.factory.get_normalizer(code)
             norm = self._cache[code].normalize(text)
@@ -81,6 +82,22 @@ class IndicTextProcessor:
         except Exception:
             return fallback_normalize(text)
 
+# class IndicTextProcessor:
+#     def __init__(self):
+#         self.factory = IndicNormalizerFactory()
+#
+#     def process(self, text: str, label: Optional[str] = None):
+#         text = str(text).strip()
+#         if not text:
+#             return text
+#         code = lang_code_map.get(label, 'hi')
+#         try:
+#             normalizer = self.factory.get_normalizer(code)
+#             norm = normalizer.normalize(text)
+#             toks = indic_tokenize.trivial_tokenize(norm, code)
+#             return " ".join(toks)
+#         except Exception:
+#             return fallback_normalize(text)
 
 # ----------------------------------------------------------
 # Triplet Dataset (NRE only)
@@ -135,17 +152,7 @@ class Phase2Dataset(Dataset):
 # ----------------------------------------------------------
 # Collate Functions
 # ----------------------------------------------------------
-# def collate_triplet_batch(batch, tokenizer, max_len=256):
-#     # Each batch = list of (a, p, n)
-#     anchors, positives, negatives = zip(*batch)
-#     a_enc = tokenizer.batch_encode(anchors, max_length=max_len)
-#     p_enc = tokenizer.batch_encode(positives, max_length=max_len)
-#     n_enc = tokenizer.batch_encode(negatives, max_length=max_len)
-#     return {
-#         'anchor_ids': a_enc['input_ids'], 'anchor_mask': a_enc['attention_mask'],
-#         'pos_ids':    p_enc['input_ids'], 'pos_mask':    p_enc['attention_mask'],
-#         'neg_ids':    n_enc['input_ids'], 'neg_mask':    n_enc['attention_mask'],
-#     }
+
 
 def collate_triplet_batch(batch, tokenizer, max_len=256):
     anchors, positives, negatives = zip(*batch)
