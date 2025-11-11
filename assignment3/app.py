@@ -75,8 +75,8 @@ processor, tokenizer, model, label2id, id2label, NUM_LANGS = load_all()
 st.sidebar.success(f"Model loaded successfully on {DEVICE}")
 st.sidebar.info(f"Languages supported: {NUM_LANGS}")
 
-with st.expander("Model & environment info", expanded=True):
-    st.write(f"Device: **{torch.cuda.get_device_name(0)}**")
+# with st.expander("Model & environment info", expanded=True):
+#     st.write(f"Device: **{torch.cuda.get_device_name(0)}**")
 
 # ==========================================================
 # INFERENCE FUNCTION
