@@ -6,7 +6,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
-from tqdm import tqdm
 import time
 import pathlib
 from model import TransformerEncoder
