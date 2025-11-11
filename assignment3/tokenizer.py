@@ -2,7 +2,6 @@
 import sentencepiece as spm
 import os, glob, pandas as pd, tempfile
 import torch
-from tqdm.auto import tqdm
 
 
 class IndicSentencePieceTokenizer:
@@ -23,7 +22,7 @@ class IndicSentencePieceTokenizer:
                 df = pd.read_csv(f, encoding="utf-8", on_bad_lines="skip", engine="python")
                 for col in df.columns:
                     texts = df[col].astype(str).values[:sample_limit]
-                    for text in tqdm(texts, desc=f"Writing from {os.path.basename(f)}", leave=False):
+                    for text in texts:
                         out.write(text.strip() + "\n")
 
         print("🧩 Text collection complete. Starting SentencePiece training ...")
