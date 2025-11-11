@@ -1,0 +1,7 @@
+streamlit
+torch
+sentencepiece
+pandas
+scikit-learn
+matplotlib
+seaborn
