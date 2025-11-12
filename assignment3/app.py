@@ -152,7 +152,7 @@ elif mode == "Batch CSV":
                 status_text = st.empty()
 
                 preds = []
-                batch_size = 64  # adjust as needed
+                batch_size = 512  # adjust as needed
                 start_time = time.time()
 
                 with st.spinner("Running inference..."):
