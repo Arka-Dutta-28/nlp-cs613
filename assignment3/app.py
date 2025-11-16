@@ -132,7 +132,7 @@ def predict_texts(texts, model, tokenizer, processor, id2label, max_len=256):
 # ==========================================================
 
 st.markdown("<h1 style='text-align:center;'>BhashaDetector</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center; font-size:16px;'>Identify Indic Languages from text using a Transformer Encoder</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; font-size:16px;'>Identifies Indic Languages from text using a Transformer Encoder</p>", unsafe_allow_html=True)
 st.markdown("---")
 
 with st.sidebar:
