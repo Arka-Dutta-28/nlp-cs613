@@ -5,3 +5,5 @@ __pycache__
 *.csv
 *.json
 artifacts/
+.venv
+assignment3/keys.py

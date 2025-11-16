@@ -11,11 +11,15 @@ import pathlib
 from model import TransformerEncoder
 from tokenizer import IndicSentencePieceTokenizer
 from dataset import get_indic_processor
+from supabase import create_client
+from datetime import datetime
+import uuid
+from keys import SUPABASE_URL, SUPABASE_KEY
 
 # ==========================================================
 # CONFIG
 # ==========================================================
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEVICE = torch.device("cpu")
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 TOKENIZER_FILE = str(BASE_DIR / "indic_tokenizer.model")
 LABEL_MAP_FILE = str(BASE_DIR / "label2id.json")
@@ -23,10 +27,6 @@ CHECKPOINT_FILE = str(BASE_DIR / "shortest_model.pt")
 
 MAX_LEN = 256
 VOCAB_SIZE = 32000
-
-st.set_page_config(page_title="Indic Language Identifier", layout="wide")
-st.title("🌏 Indic Language Identification")
-st.caption("Model inference (single + batch) using the trained TransformerEncoder.")
 
 # ==========================================================
 # LOAD ALL (cached)
@@ -72,11 +72,37 @@ def load_all():
 
 processor, tokenizer, model, label2id, id2label, NUM_LANGS = load_all()
 
-st.sidebar.success(f"Model loaded successfully on {DEVICE}")
-st.sidebar.info(f"Languages supported: {NUM_LANGS}")
 
-# with st.expander("Model & environment info", expanded=True):
-#     st.write(f"Device: **{torch.cuda.get_device_name(0)}**")
+@st.cache_resource
+def init_supabase():
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+supabase = init_supabase()
+
+
+
+def store_feedback_supabase(text, predicted, correct_list, confidences_dict):
+    session_id = st.session_state.get("session_id")
+    if not session_id:
+        session_id = str(uuid.uuid4())
+        st.session_state["session_id"] = session_id
+
+    data = {
+        "timestamp": datetime.now().isoformat(),
+        "session_id": session_id,
+        "input_text": text,
+        "predicted": predicted,
+        "correct": ",".join(correct_list),
+        "confidences": confidences_dict,
+    }
+
+    response = supabase.table("feedback").insert(data).execute()
+
+    # # DEBUG PRINT
+    # st.write("Supabase insert response:", response)
+
+
+
 
 # ==========================================================
 # INFERENCE FUNCTION
@@ -89,6 +115,7 @@ def predict_texts(texts, model, tokenizer, processor, id2label, max_len=256):
         for text in texts:
             text_proc = processor.process(text)
             enc = tokenizer.batch_encode([text_proc], max_length=max_len)
+            # st.caption(enc)
             ids = enc["input_ids"].to(DEVICE)
             masks = enc["attention_mask"].to(DEVICE)
 
@@ -101,51 +128,133 @@ def predict_texts(texts, model, tokenizer, processor, id2label, max_len=256):
 
 
 # ==========================================================
-# UI SECTIONS
+# UI SECTIONS (Improved UX)
 # ==========================================================
-mode = st.sidebar.radio("Select Mode", ["Single Prediction", "Batch CSV"])
+
+st.markdown("<h1 style='text-align:center;'>BhashaDetector</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; font-size:16px;'>Identify Indic Languages from text using a Transformer Encoder</p>", unsafe_allow_html=True)
+st.markdown("---")
+
+with st.sidebar:
+    st.header("🔧 Options")
+    mode = st.radio("Mode", ["Single Prediction", "Batch CSV"])
+
+    st.subheader("📌 Model Info")
+    st.success(f"Model loaded on: `{DEVICE}`")
+    st.info(f"Languages Supported: **{NUM_LANGS}**")
 
 # ------------------------
-# SINGLE SENTENCE MODE
+# SINGLE SENTENCE MODE (Improved - no nested feedback button)
 # ------------------------
 if mode == "Single Prediction":
-    st.header("Single Sentence Prediction")
-    text_input = st.text_area("Enter a sentence:", "", height=100)
+    st.subheader("📝 Single Sentence Prediction")
 
-    if st.button("Predict Language"):
+    text_input = st.text_area(
+        "Enter text Indic language (supports both native & roman script) :",
+        placeholder="Type or paste your sentence here...",
+        height=140,
+        key="input_text"
+    )
+
+    # Predict button
+    predict_btn = st.button("🔍 Predict Language", use_container_width=True)
+
+    if predict_btn:
         if not text_input.strip():
-            st.warning("Please enter some text to predict.")
+            st.warning("⚠️ Please enter text before predicting.")
         else:
-            with st.spinner("Predicting..."):
-                preds, probs_all = predict_texts([text_input], model, tokenizer, processor, id2label, MAX_LEN)
-                pred = preds[0]
-                probs = probs_all[0]
+            with st.spinner("Analyzing language..."):
+                preds, probs_all = predict_texts(
+                    [text_input], model, tokenizer, processor, id2label, MAX_LEN
+                )
 
-            st.success(f"**Predicted Language:** {pred}")
-            df_probs = pd.DataFrame({
-                "Language": [id2label[i] for i in range(len(probs))],
-                "Confidence": probs
-            }).sort_values("Confidence", ascending=False).head(10)
+            pred = preds[0]
+            probs = probs_all[0]
 
-            st.bar_chart(df_probs.set_index("Language"))
+            # Save prediction results in session_state
+            st.session_state["last_pred_text"] = text_input
+            st.session_state["last_pred_label"] = pred
+            st.session_state["last_pred_probs"] = probs.tolist()
+
+    # If a prediction exists, show results & feedback
+    if "last_pred_label" in st.session_state:
+        pred = st.session_state["last_pred_label"]
+        probs = np.array(st.session_state["last_pred_probs"])
+        text_input_saved = st.session_state["last_pred_text"]
+
+        st.success(f"#### Predicted Language: **{pred}**")
+
+        df_probs = pd.DataFrame({
+            "Language": [id2label[i] for i in range(len(probs))],
+            "Confidence": probs
+        })
+
+        st.write("#### Confidence Scores")
+        st.bar_chart(df_probs.set_index("Language"))
+
+        st.markdown("---")
+        st.write("#### Feedback for wrong predictions")
+        st.caption("Help improve the model by marking correct language(s).")
+
+        # Display checkboxes without nested button
+        correct_list = []
+        cols = st.columns(5)
+        for idx, row in df_probs.iterrows():
+            lang = row["Language"]
+            key = f"fb_{lang}"
+            cb = cols[idx % 5].checkbox(lang, key=key)
+            if cb:
+                correct_list.append(lang)
+
+        # custom_label = st.text_input("Or enter another language (optional)", key="custom_label")
+
+        submitted = st.button("📤 Submit Feedback", type="primary", use_container_width=True)
+
+        if submitted:
+            selected = correct_list.copy()
+            # if custom_label.strip():
+            #     selected.append(custom_label.strip())
+
+            if not selected:
+                st.warning("⚠️ Please select or enter at least one correct label.")
+            else:
+                conf_dict = {id2label[i]: float(probs[i]) for i in range(len(probs))}
+
+                store_feedback_supabase(
+                    text=text_input_saved,
+                    predicted=pred,
+                    correct_list=selected,
+                    confidences_dict=conf_dict,
+                )
+
+                st.success("🙏 Thank you! Your feedback has been recorded.")
+
+                # Clear feedback and prediction after submit
+                for key in list(st.session_state.keys()):
+                    if key.startswith("fb_") or key in [
+                        "custom_label", "last_pred_probs",
+                        "last_pred_label", "last_pred_text"
+                    ]:
+                        del st.session_state[key]
+
+
 
 # ------------------------
 # BATCH CSV MODE
 # ------------------------
 elif mode == "Batch CSV":
-    st.header("Batch CSV Prediction")
-    uploaded = st.file_uploader("Upload CSV file with a 'text' column", type=["csv"])
+    st.subheader("📁 Batch CSV Prediction")
+    uploaded = st.file_uploader("Upload CSV with a `text` column", type=["csv"])
 
-    if uploaded is not None:
+    if uploaded:
         df = pd.read_csv(uploaded)
         if "text" not in df.columns:
-            st.error("CSV must contain a 'text' column.")
+            st.error("❌ CSV must contain a `text` column.")
         else:
-            st.write("📄 File preview:", df.head())
+            st.write("### 🔍 Preview")
+            st.dataframe(df.head())
 
-            import time
-
-            if st.button("Run Predictions"):
+            if st.button("🚀 Run Batch Predictions", use_container_width=True):
                 total_rows = len(df)
                 st.info(f"Processing {total_rows:,} samples...")
                 progress_bar = st.progress(0)
@@ -192,7 +301,7 @@ elif mode == "Batch CSV":
                     y_true = df["label"].astype(str)
                     y_pred = df["predicted"].astype(str)
                     acc = accuracy_score(y_true, y_pred)
-                    st.metric("Accuracy", f"{acc*100:.2f}%")
+                    st.metric("Accuracy", f"{acc * 100:.2f}%")
 
                     report = classification_report(y_true, y_pred, output_dict=True)
                     st.write("### Classification Report")
@@ -207,4 +316,3 @@ elif mode == "Batch CSV":
                     ax.set_xlabel("Predicted")
                     ax.set_ylabel("True")
                     st.pyplot(fig)
-
